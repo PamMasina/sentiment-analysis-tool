@@ -242,6 +242,23 @@ st.markdown("""
     /* Hide streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+
+        /* Hide Streamlit Cloud toolbar */
+    [data-testid="stToolbar"] {
+        visibility: hidden;
+        height: 0%;
+        position: fixed;
+    }
+    [data-testid="stDecoration"] {
+        display: none;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent;
+    }
+
+        .stDeployButton {
+        display: none;
+    }
 </style>
 """, unsafe_allow_html=True)
 
