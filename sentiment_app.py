@@ -222,6 +222,29 @@ st.markdown("""
         margin-bottom: 1.5rem;
     }
 
+    /* Floating sidebar toggle button */
+    .stButton > button[key="open_sidebar_btn"] {
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        z-index: 999999 !important;
+        width: 46px !important;
+        height: 46px !important;
+        padding: 0 !important;
+        border-radius: 12px !important;
+        background: #0b1224 !important;
+        border: 1px solid #22d3ee !important;
+        color: #22d3ee !important;
+        font-size: 22px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 0 20px #22d3ee66 !important;
+    }
+    .stButton > button[key="open_sidebar_btn"]:hover {
+        background: #22d3ee !important;
+        color: #0b1224 !important;
+        box-shadow: 0 0 30px #22d3eeaa !important;
+    }
+
     /* Animations */
     @keyframes fadeIn {
         from { opacity: 0; }
@@ -243,7 +266,7 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 
-        /* Hide Streamlit Cloud toolbar */
+    /* Hide Streamlit Cloud toolbar */
     [data-testid="stToolbar"] {
         visibility: hidden;
         height: 0%;
@@ -256,7 +279,7 @@ st.markdown("""
         background: transparent;
     }
 
-        .stDeployButton {
+    .stDeployButton {
         display: none;
     }
 </style>
@@ -298,28 +321,44 @@ if "user_text" not in st.session_state:
     st.session_state.user_text = ""
 if "history" not in st.session_state:
     st.session_state.history = []
+if "sidebar_open" not in st.session_state:
+    st.session_state.sidebar_open = True
+
+# --- Sidebar toggle button (only shown when sidebar is CLOSED) ---
+if not st.session_state.sidebar_open:
+    if st.button("☰", key="open_sidebar_btn"):
+        st.session_state.sidebar_open = True
+        st.rerun()
 
 # --- Sidebar ---
-with st.sidebar:
-    st.markdown('<div class="sidebar-brand">🧠 Sentiment Lab</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-tag">AI Analysis Suite</div>', unsafe_allow_html=True)
+if st.session_state.sidebar_open:
+    with st.sidebar:
+        st.markdown('<div class="sidebar-brand">🧠 Sentiment Lab</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-tag">AI Analysis Suite</div>', unsafe_allow_html=True)
 
-    page = st.radio(
-        "Navigation",
-        ["🔍 Analyze", "📊 Compare", "🕘 History", "📖 About"],
-        label_visibility="collapsed"
-    )
+        if st.button("✕  Close sidebar", use_container_width=True, key="close_sidebar_btn"):
+            st.session_state.sidebar_open = False
+            st.rerun()
 
-    st.markdown("---")
-    st.markdown("**Model Stack**")
-    st.markdown(
-        "- 🟢 **VADER** — rule-based\n"
-        "- 🔵 **DistilBERT** — deep learning\n"
-        "- ⚡ **Streamlit** — interface"
-    )
+        page = st.radio(
+            "Navigation",
+            ["🔍 Analyze", "📊 Compare", "🕘 History", "📖 About"],
+            label_visibility="collapsed"
+        )
 
-    st.markdown("---")
-    st.caption("Built with Python 3.12")
+        st.markdown("---")
+        st.markdown("**Model Stack**")
+        st.markdown(
+            "- 🟢 **VADER** — rule-based\n"
+            "- 🔵 **DistilBERT** — deep learning\n"
+            "- ⚡ **Streamlit** — interface"
+        )
+
+        st.markdown("---")
+        st.caption("Built with Python 3.12")
+else:
+    # Default page when sidebar is hidden
+    page = "🔍 Analyze"
 
 # --- Shared analysis function ---
 def run_analysis(text):
@@ -377,7 +416,6 @@ if page == "🔍 Analyze":
         analyze_clicked = st.button("⚡ Analyze", type="primary", use_container_width=True)
 
     if analyze_clicked and text_input.strip():
-        # Log to history
         v_label_tmp, v_comp_tmp, v_scores_tmp, h_label_tmp, h_conf_tmp = run_analysis(text_input)
         st.session_state.history.insert(0, {
             "Time": datetime.now().strftime("%H:%M:%S"),
@@ -388,7 +426,7 @@ if page == "🔍 Analyze":
             "HF Confidence": f"{h_conf_tmp*100:.1f}%",
             "Agree": "✅" if v_label_tmp == h_label_tmp else "⚠️",
         })
-        st.session_state.history = st.session_state.history[:10]  # cap at 10
+        st.session_state.history = st.session_state.history[:10]
 
     if text_input.strip():
         with st.spinner("Analyzing..."):
@@ -422,17 +460,14 @@ if page == "🔍 Analyze":
             </div>
             """, unsafe_allow_html=True)
 
-        # Agreement
         if v_label == h_label:
             st.markdown(f'<div class="agreement agree-yes">✓ Both models agree — <b>{v_label}</b></div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="agreement agree-no">⚠ Models disagree — VADER: <b>{v_label}</b> · Hugging Face: <b>{h_label}</b></div>', unsafe_allow_html=True)
 
-        # Charts
         st.markdown("### Visual Breakdown")
         chart_col1, chart_col2 = st.columns(2)
 
-        # Pie chart: VADER breakdown
         with chart_col1:
             st.markdown("**VADER breakdown**")
             pie_fig = go.Figure(data=[go.Pie(
@@ -455,7 +490,6 @@ if page == "🔍 Analyze":
             )
             st.plotly_chart(pie_fig, use_container_width=True)
 
-        # Bar chart: comparison
         with chart_col2:
             st.markdown("**Model confidence**")
             bar_fig = go.Figure(data=[
@@ -490,7 +524,6 @@ if page == "🔍 Analyze":
             )
             st.plotly_chart(bar_fig, use_container_width=True)
 
-        # Gauge chart: HF confidence
         st.markdown("**Hugging Face confidence gauge**")
         gauge_fig = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -592,7 +625,6 @@ elif page == "🕘 History":
         df = pd.DataFrame(st.session_state.history)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # Small summary
         agree_count = sum(1 for r in st.session_state.history if r["Agree"] == "✅")
         total = len(st.session_state.history)
         if total > 0:
