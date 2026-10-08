@@ -7,6 +7,8 @@ from transformers import pipeline
 import pandas as pd
 import time
 from datetime import datetime
+import requests
+import re
 
 # --- Page config ---
 st.set_page_config(
@@ -19,7 +21,6 @@ st.set_page_config(
 # --- Dark theme + custom styling ---
 st.markdown("""
 <style>
-    /* Global background */
     .stApp {
         background: radial-gradient(circle at 20% 0%, #0f172a 0%, #020617 60%);
         color: #e2e8f0;
@@ -31,14 +32,10 @@ st.markdown("""
     section[data-testid="stSidebar"] * {
         color: #cbd5e1 !important;
     }
-
-    /* Headings */
     h1, h2, h3, h4 {
         color: #f1f5f9 !important;
         letter-spacing: -0.02em;
     }
-
-    /* Hero */
     .hero {
         padding: 0.5rem 0 1.5rem 0;
         animation: fadeIn 0.6s ease-out;
@@ -70,8 +67,6 @@ st.markdown("""
         font-size: 1.05rem;
         margin-top: 0.6rem;
     }
-
-    /* Result cards */
     .result-card {
         border-radius: 16px;
         padding: 1.6rem 1.4rem;
@@ -95,11 +90,9 @@ st.markdown("""
     .card-positive::before { background: linear-gradient(90deg, #10b981, #22d3ee); box-shadow: 0 0 20px #10b981; }
     .card-negative::before { background: linear-gradient(90deg, #ef4444, #f472b6); box-shadow: 0 0 20px #ef4444; }
     .card-neutral::before  { background: linear-gradient(90deg, #64748b, #94a3b8); box-shadow: 0 0 20px #64748b; }
-
     .card-positive:hover { border-color: #10b981; }
     .card-negative:hover { border-color: #ef4444; }
     .card-neutral:hover  { border-color: #64748b; }
-
     .card-emoji {
         font-size: 3rem;
         line-height: 1;
@@ -124,15 +117,12 @@ st.markdown("""
     .card-positive .card-value { color: #34d399; text-shadow: 0 0 20px #10b98155; }
     .card-negative .card-value { color: #f87171; text-shadow: 0 0 20px #ef444455; }
     .card-neutral  .card-value { color: #cbd5e1; }
-
     .card-detail {
         font-size: 0.82rem;
         color: #94a3b8;
         margin-top: 0.25rem;
     }
     .card-detail b { color: #e2e8f0; }
-
-    /* Method header */
     .method-header {
         font-size: 0.8rem;
         font-weight: 700;
@@ -142,8 +132,6 @@ st.markdown("""
         margin-bottom: 0.7rem;
         text-align: center;
     }
-
-    /* Agreement pill */
     .agreement {
         border-radius: 12px;
         padding: 1rem 1.4rem;
@@ -163,8 +151,6 @@ st.markdown("""
         color: #fbbf24;
         border-color: #f59e0b55;
     }
-
-    /* Buttons */
     .stButton > button {
         background: #0b1224;
         color: #e2e8f0;
@@ -189,8 +175,6 @@ st.markdown("""
         box-shadow: 0 0 30px #22d3ee66;
         color: #020617;
     }
-
-    /* Text area */
     .stTextArea textarea {
         background: #0b1224 !important;
         color: #e2e8f0 !important;
@@ -203,8 +187,6 @@ st.markdown("""
         border-color: #22d3ee !important;
         box-shadow: 0 0 0 3px #22d3ee22 !important;
     }
-
-    /* Sidebar brand */
     .sidebar-brand {
         font-size: 1.3rem;
         font-weight: 800;
@@ -221,8 +203,6 @@ st.markdown("""
         text-transform: uppercase;
         margin-bottom: 1.5rem;
     }
-
-    /* Floating sidebar toggle button */
     .stButton > button[key="open_sidebar_btn"] {
         position: fixed !important;
         top: 14px !important;
@@ -244,8 +224,6 @@ st.markdown("""
         color: #0b1224 !important;
         box-shadow: 0 0 30px #22d3eeaa !important;
     }
-
-    /* Animations */
     @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -254,19 +232,11 @@ st.markdown("""
         from { opacity: 0; transform: translateY(12px); }
         to { opacity: 1; transform: translateY(0); }
     }
-
-    /* Metric tweaks */
     [data-testid="stMetricValue"] { color: #f1f5f9; }
     [data-testid="stMetricLabel"] { color: #94a3b8; }
-
-    /* Divider */
     hr { border-color: #1e293b !important; }
-
-    /* Hide streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-
-    /* Hide Streamlit Cloud toolbar */
     [data-testid="stToolbar"] {
         visibility: hidden;
         height: 0%;
@@ -278,7 +248,6 @@ st.markdown("""
     header[data-testid="stHeader"] {
         background: transparent;
     }
-
     .stDeployButton {
         display: none;
     }
@@ -342,7 +311,7 @@ if st.session_state.sidebar_open:
 
         page = st.radio(
             "Navigation",
-            ["🔍 Analyze", "📊 Compare", "🕘 History", "📖 About"],
+            ["🔍 Analyze", "📊 Compare", "🕘 History", "📈 YouTube", "📖 About"],
             label_visibility="collapsed"
         )
 
@@ -357,7 +326,6 @@ if st.session_state.sidebar_open:
         st.markdown("---")
         st.caption("Built with Python 3.12")
 else:
-    # Default page when sidebar is hidden
     page = "🔍 Analyze"
 
 # --- Shared analysis function ---
@@ -365,6 +333,53 @@ def run_analysis(text):
     v_label, v_comp, v_scores = vader_analyze(text)
     h_label, h_conf = hf_analyze(text)
     return v_label, v_comp, v_scores, h_label, h_conf
+
+# --- YouTube helpers ---
+def get_youtube_comments(video_id, max_results=50):
+    try:
+        api_key = st.secrets["YOUTUBE_API_KEY"]
+    except Exception:
+        return None, "API key not configured. Add YOUTUBE_API_KEY to .streamlit/secrets.toml"
+
+    base_url = "https://www.googleapis.com/youtube/v3/commentThreads"
+    params = {
+        "part": "snippet",
+        "videoId": video_id,
+        "maxResults": min(max_results, 100),
+        "key": api_key,
+        "textFormat": "plainText",
+        "order": "relevance",
+    }
+
+    try:
+        response = requests.get(base_url, params=params, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            comments = [
+                item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+                for item in data.get("items", [])
+            ]
+            return comments, None
+        elif response.status_code == 403:
+            return None, "API quota exceeded or key restricted. Try again later."
+        elif response.status_code == 404:
+            return None, "Comments disabled for this video, or video not found."
+        else:
+            return None, f"YouTube API error: {response.status_code}"
+    except requests.exceptions.RequestException as e:
+        return None, f"Network error: {str(e)[:60]}"
+
+
+def extract_video_id(url):
+    patterns = [
+        r"(?:v=|\/videos\/|embed\/|youtu\.be\/|\/v\/|\/e\/|watch\?v=|\&v=)([^#\&\?]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
 
 # =====================================================================
 # PAGE: ANALYZE
@@ -378,11 +393,9 @@ if page == "🔍 Analyze":
     </div>
     """, unsafe_allow_html=True)
 
-    # Callback runs BEFORE rerun, so state updates cleanly
     def fill_sample(txt):
         st.session_state.user_text = txt
 
-    # Quick samples
     st.markdown("**Quick samples** — click to auto-fill")
     c1, c2, c3, c4 = st.columns(4)
     samples = [
@@ -402,7 +415,6 @@ if page == "🔍 Analyze":
                 args=(txt,)
             )
 
-    # Text area bound to session state key
     text_input = st.text_area(
         "Your text",
         key="user_text",
@@ -410,7 +422,6 @@ if page == "🔍 Analyze":
         height=130,
     )
 
-    # Analyze button — named analyze_clicked to avoid clashing with Plotly's go
     b1, b2, b3 = st.columns([1, 1, 1])
     with b2:
         analyze_clicked = st.button("⚡ Analyze", type="primary", use_container_width=True)
@@ -635,6 +646,119 @@ elif page == "🕘 History":
             """, unsafe_allow_html=True)
 
 # =====================================================================
+# PAGE: YOUTUBE
+# =====================================================================
+elif page == "📈 YouTube":
+    st.markdown("""
+    <div class="hero">
+        <span class="hero-tag">● API Mode</span>
+        <h1 class="hero-title">YouTube Comments</h1>
+        <p class="hero-sub">Paste a YouTube video link to analyze its comment section.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    video_url = st.text_input(
+        "YouTube video URL",
+        placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    )
+
+    max_comments = st.slider("Number of comments to fetch", 10, 100, 50, step=10)
+
+    if st.button("⚡ Fetch & Analyze Comments", type="primary"):
+        if not video_url.strip():
+            st.warning("Please paste a YouTube URL first.")
+        else:
+            video_id = extract_video_id(video_url)
+            if not video_id:
+                st.error("Couldn't find a video ID in that URL. Check the link and try again.")
+            else:
+                with st.spinner(f"Fetching up to {max_comments} comments..."):
+                    comments, error = get_youtube_comments(video_id, max_comments)
+
+                if error:
+                    st.error(error)
+                elif not comments:
+                    st.info("No comments found for this video.")
+                else:
+                    st.success(f"Fetched **{len(comments)}** comments. Analyzing...")
+
+                    with st.spinner("Running sentiment analysis on each comment..."):
+                        vader_labels = []
+                        hf_labels = []
+                        rows = []
+                        for c in comments:
+                            v_label, v_comp, _, h_label, h_conf = run_analysis(c)
+                            vader_labels.append(v_label)
+                            hf_labels.append(h_label)
+                            rows.append({
+                                "Comment": c[:120] + ("..." if len(c) > 120 else ""),
+                                "VADER": v_label,
+                                "VADER Score": round(v_comp, 3),
+                                "Hugging Face": h_label,
+                                "HF Conf": f"{h_conf*100:.0f}%",
+                            })
+
+                    vader_counts = pd.Series(vader_labels).value_counts().to_dict()
+                    total = len(comments)
+                    pos = vader_counts.get("Positive", 0)
+                    neu = vader_counts.get("Neutral", 0)
+                    neg = vader_counts.get("Negative", 0)
+
+                    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                    kpi1.metric("Total Comments", total)
+                    kpi2.metric("😊 Positive", f"{pos} ({pos*100//total}%)")
+                    kpi3.metric("😐 Neutral", f"{neu} ({neu*100//total}%)")
+                    kpi4.metric("😞 Negative", f"{neg} ({neg*100//total}%)")
+
+                    st.markdown("### Sentiment Distribution (VADER)")
+                    chart_col1, chart_col2 = st.columns(2)
+
+                    with chart_col1:
+                        pie_fig = go.Figure(data=[go.Pie(
+                            labels=["Positive", "Neutral", "Negative"],
+                            values=[pos, neu, neg],
+                            hole=0.55,
+                            marker=dict(
+                                colors=["#10b981", "#64748b", "#ef4444"],
+                                line=dict(color="#0b1224", width=2)
+                            ),
+                            textinfo="label+percent",
+                            textfont=dict(color="#e2e8f0", size=13),
+                            hovertemplate="<b>%{label}</b><br>%{value} comments<br>%{percent}<extra></extra>"
+                        )])
+                        pie_fig.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="#e2e8f0"),
+                            showlegend=False,
+                            height=340,
+                            margin=dict(l=10, r=10, t=10, b=10),
+                        )
+                        st.plotly_chart(pie_fig, use_container_width=True)
+
+                    with chart_col2:
+                        bar_fig = go.Figure(data=[go.Bar(
+                            x=["Positive", "Neutral", "Negative"],
+                            y=[pos, neu, neg],
+                            marker_color=["#10b981", "#64748b", "#ef4444"],
+                            hovertemplate="<b>%{x}</b><br>%{y} comments<extra></extra>"
+                        )])
+                        bar_fig.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="#e2e8f0"),
+                            height=340,
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            xaxis=dict(gridcolor="#1e293b", linecolor="#1e293b"),
+                            yaxis=dict(gridcolor="#1e293b", linecolor="#1e293b"),
+                        )
+                        st.plotly_chart(bar_fig, use_container_width=True)
+
+                    st.markdown("### Analyzed Comments")
+                    df = pd.DataFrame(rows)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+# =====================================================================
 # PAGE: ABOUT
 # =====================================================================
 else:
@@ -677,7 +801,8 @@ else:
         "- **NLTK** — VADER sentiment analyzer\n"
         "- **Transformers + PyTorch** — Hugging Face model\n"
         "- **Pandas** — data handling\n"
-        "- **Plotly** — interactive charts"
+        "- **Plotly** — interactive charts\n"
+        "- **YouTube Data API v3** — comment fetching"
     )
 
     st.markdown("### Run It Locally")
